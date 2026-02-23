@@ -30,24 +30,34 @@ export class GamesController {
       return { error: 'Round not found' } as any;
     }
 
-    const score = await this.gamesService.getOrCreateScoreByUserAndRound(req.user.sub, uuid);
+    const isCooldown = this.gamesService.isRoundCooldown(round);
+    const isFinished = this.gamesService.isRoundFinished(round);
+
+    // Подключиться к раунду можно только во время cooldown (успели зайти на страницу). В активной фазе новых участников не добавляем.
+    let currentUserScore = 0;
+    if (isCooldown) {
+      const score = await this.gamesService.getOrCreateScoreByUserAndRound(req.user.sub, uuid);
+      currentUserScore = this.gamesService.scoreFromTapsCount(score.taps);
+    } else {
+      const score = await this.gamesService.getScoreByUserAndRound(req.user.sub, uuid);
+      if (score) currentUserScore = this.gamesService.scoreFromTapsCount(score.taps);
+    }
 
     const baseResponse: RoundWithScore = {
-      round: round,
+      round,
+      currentUserScore,
     };
 
-    // Если раунд завершен, добавляем дополнительную информацию
-    if (this.gamesService.isRoundFinished(round)) {
+    if (isFinished) {
       const summary = await this.gamesService.getRoundSummary(uuid);
       const responseWithResults: RoundWithResults = {
         ...baseResponse,
         totalScore: summary.totalScore,
         bestPlayer: summary.bestPlayer,
-        currentUserScore: this.gamesService.scoreFromTapsCount(score.taps),
       };
       return responseWithResults;
     }
-    
+
     return baseResponse;
   }
 

@@ -29,8 +29,10 @@ export class AuthService {
       const saltRounds = 10;
       const password_hash = await bcrypt.hash(password, saltRounds);
       
-      // Определяем роль: nikita для пользователя Никита, user для остальных
-      const role = username === 'Никита' ? 'nikita' : 'user';
+      // Роли по имени: admin, Никита -> nikita, остальные -> user
+      const role =
+        username === 'admin' ? 'admin' :
+        username === 'Никита' ? 'nikita' : 'user';
       
       const newUser = await this.userModel.create({
         login: username,

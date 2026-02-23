@@ -1,0 +1,8 @@
+/node_modules
+/client/node_modules
+/contract/node_modules
+/server/node_modules
+/dist
+/client/dist
+/contract/dist
+/server/dist

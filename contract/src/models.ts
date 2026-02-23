@@ -23,6 +23,7 @@ export interface Score {
 // Дополнительные типы для ответов API
 export interface RoundWithScore {
   round: Round;
+  currentUserScore: number;
 }
 
 export interface RoundWithResults extends RoundWithScore {

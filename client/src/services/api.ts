@@ -72,7 +72,9 @@ class ApiService {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to perform tap');
+      const body = await response.json().catch(() => ({}));
+      const msg = Array.isArray(body.message) ? body.message[0] : body.message;
+      throw new Error(msg || 'Не удалось выполнить тап');
     }
 
     return response.json();
@@ -117,7 +119,12 @@ class ApiService {
     if (!token) return null;
 
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
+      const base64url = token.split('.')[1];
+      const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+      const binary = atob(base64);
+      const bytes = new Uint8Array([...binary].map((c) => c.charCodeAt(0)));
+      const json = new TextDecoder().decode(bytes);
+      const payload = JSON.parse(json);
       return {
         username: payload.username,
         role: payload.role

@@ -51,10 +51,8 @@ export const HomePage: React.FC = () => {
     try {
       setCreatingRound(true);
       setError('');
-      await apiService.createRound();
-      // Обновляем список раундов
-      const roundsData = await apiService.getRounds();
-      setRounds(roundsData);
+      const round = await apiService.createRound();
+      navigate(`/round/${round.uuid}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка создания раунда');
     } finally {
@@ -66,13 +64,22 @@ export const HomePage: React.FC = () => {
     return new Date(date).toLocaleString('ru-RU');
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
+  const getRoundStatus = (round: Round) => {
+    const now = new Date();
+    const start = new Date(round.start_datetime);
+    const end = round.end_datetime ? new Date(round.end_datetime) : null;
+    if (end && now > end) return { label: 'Завершён', key: 'completed' };
+    if (now < start) return { label: 'Cooldown', key: 'cooldown' };
+    return { label: 'Активен', key: 'active' };
+  };
+
+  const getStatusColor = (key: string) => {
+    switch (key) {
       case 'active':
         return '#28a745';
       case 'completed':
         return '#6c757d';
-      case 'pending':
+      case 'cooldown':
         return '#ffc107';
       default:
         return '#007bff';
@@ -102,7 +109,7 @@ export const HomePage: React.FC = () => {
       </div>
     );
   }
-
+console.log(apiService)
   return (
     <div style={{
       minHeight: '100vh',
@@ -124,9 +131,12 @@ export const HomePage: React.FC = () => {
           boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
         }}>
           <h1 style={{ margin: 0, color: '#333' }}>
-            The Last of Guss
+            Список раундов
           </h1>
-          <div style={{ display: 'flex', gap: '1rem' }}>
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.95rem', color: '#495057' }}>
+              {apiService.decodeToken()?.username ?? ''}
+            </span>
             {apiService.isAdmin() && (
               <button
                 onClick={handleCreateRound}
@@ -273,10 +283,10 @@ export const HomePage: React.FC = () => {
                           borderRadius: '12px',
                           fontSize: '0.8rem',
                           fontWeight: '500',
-                          backgroundColor: getStatusColor(round.status),
+                          backgroundColor: getStatusColor(getRoundStatus(round).key),
                           color: 'white'
                         }}>
-                          {round.status}
+                          {getRoundStatus(round).label}
                         </span>
                       </td>
                       <td style={{

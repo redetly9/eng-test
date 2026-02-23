@@ -1,10 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiService } from '../services/api';
 import type { RoundResponse, RoundWithResultsResponse } from '../types/api';
-import gussReady from '../assets/guss_ready.png';
-import gussStop from '../assets/guss_stop.png';
-import gussTapped from '../assets/guss_tapped.png';
+import { Goose } from '../components/Goose';
 import './RoundPage.css';
 
 const RoundPage: React.FC = () => {
@@ -17,15 +15,18 @@ const RoundPage: React.FC = () => {
   const [isTapping, setIsTapping] = useState(false);
   const [tapCount, setTapCount] = useState(0);
   const [needReloadOnFinish, setNeedReloadOnFinish] = useState(false);
+  const [tapError, setTapError] = useState<string | null>(null);
 
-  const fetchRoundData = async () => {
+  const currentUserScore = tapCount;
+
+  const fetchRoundData = useCallback(async () => {
     if (!uuid) return;
-    
     try {
       setLoading(true);
       const data = await apiService.getRound(uuid);
       setRoundData(data);
-      setTapCount(0);
+      const initialScore = 'currentUserScore' in data ? data.currentUserScore : 0;
+      setTapCount(initialScore);
       setNeedReloadOnFinish(new Date(data.round.end_datetime) > new Date());
     } catch (err) {
       setError('Ошибка загрузки данных раунда');
@@ -33,18 +34,19 @@ const RoundPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [uuid]);
 
 
+  // Когда раунд только что завершился (время перешло за end_datetime) — подгружаем результаты с сервера
   useEffect(() => {
-    console.log('needReloadOnFinish', needReloadOnFinish);
     if (!roundData) return;
-
-    const isFinished = new Date() > new Date(roundData?.round.end_datetime);
-    if (isFinished) {
-      fetchRoundData(); // reload data from server
+    const endTime = new Date(roundData.round.end_datetime);
+    const now = currentTime.getTime();
+    if (now > endTime.getTime() && needReloadOnFinish) {
+      setNeedReloadOnFinish(false);
+      fetchRoundData();
     }
-  }, [needReloadOnFinish]);
+  }, [currentTime, needReloadOnFinish, roundData, fetchRoundData]);
 
   // Обновляем текущее время каждую секунду
   useEffect(() => {
@@ -55,28 +57,23 @@ const RoundPage: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Загружаем данные раунда
+  // Загружаем данные раунда при заходе на страницу
   useEffect(() => {
-
     fetchRoundData();
-  }, [uuid]);
+  }, [fetchRoundData]);
 
   // Обработчик тапа
   const handleTap = async () => {
     if (!roundData || isTapping || !uuid) return;
-    
+    setTapError(null);
     try {
       setIsTapping(true);
       const response = await apiService.tap(uuid);
-      
-      // Обновляем счет только если сервер вернул больше очков, чем отображается
-      if (response.score > tapCount) {
-        setTapCount(response.score);
-      }
+      setTapCount(response.score);
     } catch (err) {
-      console.error('Error performing tap:', err);
+      setTapError(err instanceof Error ? err.message : 'Ошибка тапа');
     } finally {
-      setTimeout(() => setIsTapping(false), 100); // Небольшая задержка для визуального эффекта
+      setTimeout(() => setIsTapping(false), 100);
     }
   };
 
@@ -124,10 +121,6 @@ const RoundPage: React.FC = () => {
   const isActive = currentTime >= startTime && currentTime <= endTime;
   const isFinished = currentTime > endTime;
 
-  if (!isBeforeStart && isFinished && needReloadOnFinish) {
-    setNeedReloadOnFinish(false);
-  }
-  
   // Вычисляем оставшееся время до начала
   const getTimeUntilStart = () => {
     const diff = startTime.getTime() - currentTime.getTime();
@@ -152,11 +145,7 @@ const RoundPage: React.FC = () => {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const getCurrentImage = () => {
-    if (isTapping) return gussTapped;
-    if (isActive) return gussReady;
-    return gussStop;
-  };
+  const gooseState = isTapping ? 'tapped' : isActive ? 'ready' : 'stop';
 
   const formatDateTime = (date: Date) => {
     return date.toLocaleString('ru-RU', {
@@ -175,7 +164,8 @@ const RoundPage: React.FC = () => {
         <button onClick={() => navigate('/')} className="back-button">
           ← Вернуться к списку раундов
         </button>
-        <h1>Раунд к={needReloadOnFinish} {round.uuid.slice(0, 8)}</h1>
+        <h1>Раунд {round.uuid.slice(0, 8)}…</h1>
+        <span className="round-username">{apiService.decodeToken()?.username ?? ''}</span>
       </div>
 
       <div className="round-info">
@@ -191,15 +181,15 @@ const RoundPage: React.FC = () => {
           <div className="detail-item">
             <span className="label">Статус:</span>
             <span className={`status ${isActive ? 'active' : isFinished ? 'finished' : 'waiting'}`}>
-              {isBeforeStart ? 'Ожидание' : isActive ? 'Активен' : 'Завершен'}
+              {isBeforeStart ? 'Cooldown' : isActive ? 'Активен' : 'Раунд завершён'}
             </span>
           </div>
         </div>
 
         {isBeforeStart && (
           <div className="countdown">
-            <h2>До начала раунда:</h2>
-            <div className="countdown-timer">{getTimeUntilStart()}</div>
+            <h2>Cooldown</h2>
+            <div className="countdown-timer">до начала раунда {getTimeUntilStart().slice(3)}</div>
           </div>
         )}
 
@@ -207,36 +197,39 @@ const RoundPage: React.FC = () => {
           <div className="active-round">
             <h2>Раунд активен!</h2>
             <div className="time-remaining">
-              Осталось времени: {getTimeUntilEnd()}
+              До конца осталось: {getTimeUntilEnd().slice(3)}
             </div>
+            {tapError && (
+              <div className="tap-error" role="alert">
+                {tapError}
+              </div>
+            )}
           </div>
         )}
 
         {!isFinished && (
-        <div className="score-section">
-            <h3>Ваш счет: {tapCount}</h3>
+          <div className="score-section">
+            <h3>Мои очки — {currentUserScore}</h3>
           </div>
         )}
 
         {isFinished && 'totalScore' in roundData && roundData.totalScore !== undefined && (
           <div className="round-results">
-            <h2>Результаты раунда</h2>
+            <h2>Раунд завершён</h2>
             <div className="results-grid">
               <div className="result-item">
-                <span className="result-label">Общий счет раунда:</span>
+                <span className="result-label">Всего:</span>
                 <span className="result-value">{roundData.totalScore}</span>
               </div>
               {roundData.bestPlayer && (
                 <div className="result-item">
-                  <span className="result-label">Лучший игрок:</span>
-                  <span className="result-value">
-                    {roundData.bestPlayer.username} ({roundData.bestPlayer.score} очков)
-                  </span>
+                  <span className="result-label">Победитель — {roundData.bestPlayer.username}</span>
+                  <span className="result-value">{roundData.bestPlayer.score}</span>
                 </div>
               )}
               <div className="result-item">
-                <span className="result-label">Ваш счет:</span>
-                <span className="result-value">{roundData.currentUserScore || tapCount}</span>
+                <span className="result-label">Мои очки:</span>
+                <span className="result-value">{roundData.currentUserScore ?? currentUserScore}</span>
               </div>
             </div>
           </div>
@@ -244,15 +237,13 @@ const RoundPage: React.FC = () => {
       </div>
 
       <div className="guss-container">
-        <img
-          src={getCurrentImage()}
-          alt="Guss"
+        <Goose
+          state={gooseState}
           className={`guss-image ${isActive ? 'clickable' : ''} ${isTapping ? 'tapping' : ''}`}
           onClick={isActive ? handleTap : undefined}
           onMouseDown={isActive ? handleMouseDown : undefined}
           onMouseUp={isActive ? handleMouseUp : undefined}
           onMouseLeave={isActive ? handleMouseLeave : undefined}
-          draggable={false}
         />
         {isActive && (
           <div className="tap-instruction">
